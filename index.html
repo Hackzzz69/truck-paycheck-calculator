@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Paycheck Calc">
+<meta name="theme-color" content="#0b1220">
+<meta name="description" content="W-2 vs 1099 weekly truck paycheck calculator">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>Truck Paycheck Calculator</title>
+<style>
+  :root { --bg:#0b1220; --card:#141d33; --line:#243154; --txt:#e8edf7; --dim:#93a0bd;
+          --acc:#4da3ff; --good:#3ddc84; --warn:#ffb020; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:var(--bg); color:var(--txt);
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         padding:calc(12px + env(safe-area-inset-top)) 14px calc(20px + env(safe-area-inset-bottom)); }
+  h1 { font-size:20px; margin:4px 0 2px; }
+  .sub { color:var(--dim); font-size:12px; margin-bottom:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px;
+          padding:14px; margin-bottom:12px; }
+  label { display:block; font-size:12px; color:var(--dim); margin:10px 0 5px; }
+  label:first-child { margin-top:0; }
+  input[type=number], input[type=text] { width:100%; font-size:20px; padding:12px;
+      border-radius:10px; border:1px solid var(--line); background:#0e1628; color:var(--txt); }
+  input::placeholder { color:#4a5878; }
+  input:focus { outline:2px solid var(--acc); border-color:var(--acc); }
+  .seg { display:flex; background:#0e1628; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .seg button { flex:1; padding:12px 6px; font-size:14px; background:transparent; color:var(--dim);
+      border:0; cursor:pointer; }
+  .seg button.on { background:var(--acc); color:#06121f; font-weight:700; }
+  .loadrow { display:grid; grid-template-columns:20px 1fr 16px 1fr auto 30px; gap:6px;
+             align-items:center; margin-bottom:8px; }
+  .loadrow input { font-size:16px; padding:10px 8px; }
+  .loadrow .ln { color:var(--dim); font-size:12px; text-align:center; }
+  .loadrow .x { color:var(--dim); text-align:center; }
+  .loadrow .lt { font-size:13px; font-variant-numeric:tabular-nums; min-width:66px; text-align:right; }
+  .loadrow .rm { background:transparent; border:1px solid var(--line); color:var(--dim);
+      border-radius:8px; font-size:16px; padding:5px 0; cursor:pointer; }
+  .addbtn { width:100%; padding:11px; margin-top:2px; border-radius:10px;
+      border:1px dashed var(--acc); background:transparent; color:var(--acc);
+      font-size:14px; cursor:pointer; }
+  .big { text-align:center; padding:18px 10px; }
+  .big .amt { font-size:44px; font-weight:800; color:var(--good); letter-spacing:-1px; }
+  .big .lbl { font-size:12px; color:var(--dim); margin-top:4px; }
+  .row { display:flex; justify-content:space-between; padding:8px 2px; font-size:14px;
+         border-bottom:1px solid var(--line); }
+  .row:last-child { border-bottom:0; }
+  .row .k { color:var(--dim); } .row .v { font-variant-numeric:tabular-nums; }
+  .row.total .v { font-weight:700; color:var(--good); }
+  .note { font-size:11px; color:var(--dim); line-height:1.5; }
+  details { margin-top:10px; } summary { font-size:12px; color:var(--acc); cursor:pointer; }
+</style>
+</head>
+<body>
+<h1>🚛 Paycheck Calculator</h1>
+<div class="sub">W-2 (15% + per diem) vs 1099 (25%) · 2026 tax figures · verified to the penny on 5 real stubs</div>
+
+<div class="card">
+  <label>Pay type</label>
+  <div class="seg" id="modeSeg">
+    <button data-v="w2" class="on">W-2 · 15%</button>
+    <button data-v="t1099">1099 · 25%</button>
+  </div>
+  <label>Loads — tons × $/ton</label>
+  <div id="loads"></div>
+  <button id="addLoad" type="button" class="addbtn">＋ Add load</button>
+  <div class="row total" style="margin-top:8px"><span class="k">Total truck gross</span><span class="v" id="outR">$0.00</span></div>
+  <label>Filing status (for withholding)</label>
+  <div class="seg" id="statusSeg">
+    <button data-v="single" class="on">Single</button>
+    <button data-v="mfj">Married filing jointly</button>
+    <button data-v="hoh">Head of household</button>
+  </div>
+  <label>Dependents (× $2,000/yr credit each)</label>
+  <input type="number" id="inDeps" inputmode="numeric" placeholder="e.g. 0" min="0" max="10" step="1">
+  <div id="w2extra">
+    <label>YTD gross wages — wages only, not per diem (from latest stub)</label>
+    <input type="number" id="inYtd" inputmode="decimal" placeholder="e.g. 42224.45" min="0" step="0.01">
+  </div>
+  <div id="t1099extra" style="display:none">
+    <label>Weekly business deductions — road expenses ($)</label>
+    <input type="number" id="inDed" inputmode="decimal" placeholder="e.g. 304" min="0" step="0.01">
+  </div>
+</div>
+
+<div class="card big">
+  <div class="amt" id="outBig">—</div>
+  <div class="lbl" id="outBigLbl">enter your loads to calculate</div>
+</div>
+
+<div class="card" id="outLines" style="display:none"></div>
+
+<div class="card" id="annualCard" style="display:none">
+  <div class="row"><span class="k">Projected true annual take-home (federal settled)</span><span class="v" id="outAnnual">$0</span></div>
+  <div class="note" id="outFoot" style="margin-top:8px"></div>
+  <details><summary>How this is calculated</summary>
+    <div class="note" style="margin-top:6px">
+    W-2: truck revenue = Σ(tons × $/ton) across your loads; gross = 15% of truck revenue; per diem = 7.95% (exact on all 6 stubs);
+    federal = IRS Pub. 15-T 2026 weekly tables (pre-2020 W-4) on gross, rounded to whole dollars,
+    minus $2,000/yr per dependent; Oklahoma ≈ 4.48% of gross − $9.16, rounded to dollars
+    (fitted — exact within 35¢); Social Security/Medicare = (rounded YTD tax at new YTD) −
+    (rounded YTD tax at prior YTD). 1099: check = 25% of revenue; set aside 15.3% × 92.35%
+    of profit for SE tax plus a weekly slice of projected federal income tax
+    (2026 MFJ/single/HoH brackets &amp; standard deductions, child credits, EIC). Head of household:
+    weekly withholding uses the Single table (the pre-2020 W-4 has no HoH checkbox — HoH filers
+    check Single); the annual projection uses HoH brackets and the $24,150 standard deduction.
+    State tax not modeled.
+    </div>
+  </details>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const r2 = x => Math.round((x + Number.EPSILON) * 100) / 100;
+const r0 = x => Math.round(x);
+const fmt = x => (x < 0 ? "-$" : "$") + Math.abs(x).toLocaleString("en-US",{minimumFractionDigits:2, maximumFractionDigits:2});
+const fmt0 = x => (x < 0 ? "-$" : "$") + Math.abs(Math.round(x)).toLocaleString("en-US");
+
+// 2026 IRS Pub. 15-T percentage-method tables, pre-2020 W-4, WEEKLY. [upTo, base, rate, over]
+const FED_SINGLE = [[144,0,0,0],[383,0,.10,144],[1113,23.90,.12,383],[2177,111.50,.22,1113],[4025,345.58,.24,2177],[Infinity,789.10,.32,4025]];
+const FED_MFJ    = [[371,0,0,0],[848,0,.10,371],[2310,47.70,.12,848],[4437,223.14,.22,2310],[8132,691.08,.24,4437],[Infinity,1577.88,.32,8132]];
+function fedTable(gross, status){
+  // Pre-2020 W-4 has no Head-of-Household checkbox: HoH filers withhold at the Single rate.
+  const T = status === "mfj" ? FED_MFJ : FED_SINGLE;
+  for (const [upTo, base, rate, over] of T)
+    if (gross <= upTo) return base + rate * Math.max(0, gross - over);
+  return 0;
+}
+function incomeTax(taxable, status){
+  const B = status === "mfj" ? [[24800,.10],[100800,.12],[211400,.22],[403550,.24],[Infinity,.32]]
+          : status === "hoh" ? [[17700,.10],[67450,.12],[105700,.22],[201750,.24],[Infinity,.32]]
+                              : [[12400,.10],[50400,.12],[105700,.22],[201775,.24],[Infinity,.32]];
+  let tax = 0, prev = 0;
+  for (const [top, rate] of B){ if (taxable <= prev) break; tax += (Math.min(taxable, top) - prev) * rate; prev = top; }
+  return tax;
+}
+function ctcSplit(liability, deps){ // returns [remainingLiability, refundable]
+  let liab = liability, ref = 0;
+  for (let i = 0; i < deps; i++){ const use = Math.min(2000, liab); liab -= use; ref += Math.min(2000 - use, 1700); }
+  return [liab, ref];
+}
+function eic(earned, agi, mfj, kids){
+  const P = kids >= 3 ? {m:8231, s:mfj?31160:23890, r:.2106}
+          : kids === 2 ? {m:7316, s:mfj?31160:23890, r:.2106}
+          : kids === 1 ? {m:4427, s:mfj?31160:23890, r:.1598}
+                       : {m:664,  s:mfj?18140:10860, r:.0765};
+  return Math.max(0, P.m - P.r * Math.max(0, Math.max(earned, agi) - P.s));
+}
+function annualModel(Rweek, mode, status, deps, weeklyDed){
+  let agi, fica, earned;
+  const mfj = status === "mfj";
+  if (mode === "w2"){
+    const wages = 0.15 * Rweek * 52;
+    agi = wages; earned = wages; fica = 0.0765 * wages;
+  } else {
+    const cash = 0.25 * Rweek * 52, netSE = cash - weeklyDed * 52;
+    const seTax = 0.153 * 0.9235 * Math.max(0, netSE);
+    agi = Math.max(0, netSE) - seTax / 2; earned = Math.max(0, netSE); fica = seTax;
+  }
+  const stdDed = status === "mfj" ? 32200 : status === "hoh" ? 24150 : 16100;
+  const taxable = Math.max(0, agi - stdDed);
+  const [liab, refCTC] = ctcSplit(incomeTax(taxable, status), deps);
+  const e = eic(earned, agi, mfj, deps);
+  return { totalFed: fica + liab - refCTC - e, fica, liab, refCTC, eic: e };
+}
+
+let mode = "w2", status = "single";
+
+// ---- Load rows: tons × $/ton ----
+let loads = [{tons:"",rate:""},{tons:"",rate:""},{tons:"",rate:""}];
+function totalR(){
+  return r2(loads.reduce((s,l) => s + (parseFloat(l.tons)||0) * (parseFloat(l.rate)||0), 0));
+}
+function renderLoads(){
+  const el = $("loads");
+  el.innerHTML = "";
+  loads.forEach((l, i) => {
+    const t = parseFloat(l.tons)||0, r = parseFloat(l.rate)||0;
+    const row = document.createElement("div");
+    row.className = "loadrow";
+    row.innerHTML =
+      `<span class="ln">${i+1}</span>` +
+      `<input type="number" inputmode="decimal" min="0" step="0.01" placeholder="tons" value="${l.tons}" data-i="${i}" data-f="tons" aria-label="Load ${i+1} tons">` +
+      `<span class="x">×</span>` +
+      `<input type="number" inputmode="decimal" min="0" step="0.01" placeholder="$/ton" value="${l.rate}" data-i="${i}" data-f="rate" aria-label="Load ${i+1} dollars per ton">` +
+      `<span class="lt">${fmt(t*r)}</span>` +
+      `<button type="button" class="rm" data-i="${i}" aria-label="Remove load ${i+1}">×</button>`;
+    el.appendChild(row);
+  });
+  el.querySelectorAll("input").forEach(inp => inp.addEventListener("input", e => {
+    const i = +e.target.dataset.i;
+    loads[i][e.target.dataset.f] = e.target.value;
+    const t = parseFloat(loads[i].tons)||0, r = parseFloat(loads[i].rate)||0;
+    e.target.closest(".loadrow").querySelector(".lt").textContent = fmt(t*r);
+    calc();
+  }));
+  el.querySelectorAll(".rm").forEach(b => b.addEventListener("click", e => {
+    const i = +e.currentTarget.dataset.i;
+    if (loads.length <= 1) loads[0] = {tons:"",rate:""};
+    else loads.splice(i, 1);
+    renderLoads(); calc();
+  }));
+}
+$("addLoad").addEventListener("click", () => { loads.push({tons:"",rate:""}); renderLoads(); calc(); });
+function segWire(id, fn){
+  $(id).querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+    $(id).querySelectorAll("button").forEach(x => x.classList.remove("on"));
+    b.classList.add("on"); fn(b.dataset.v); calc();
+  }));
+}
+segWire("modeSeg", v => { mode = v;
+  $("w2extra").style.display = v === "w2" ? "" : "none";
+  $("t1099extra").style.display = v === "t1099" ? "" : "none"; });
+segWire("statusSeg", v => { status = v; });
+["inDeps","inYtd","inDed"].forEach(id => $(id).addEventListener("input", calc));
+
+function calc(){
+  const R = totalR();
+  $("outR").textContent = fmt(R);
+  const deps = Math.max(0, Math.min(10, parseInt($("inDeps").value) || 0));
+  if (R <= 0){
+    $("outBig").textContent = "—";
+    $("outBigLbl").textContent = "enter the truck gross to calculate";
+    $("outLines").style.display = "none";
+    $("annualCard").style.display = "none";
+    return;
+  }
+  const lines = [];
+  let big, bigLbl, annual, foot;
+  if (mode === "w2"){
+    const ytd = Math.max(0, parseFloat($("inYtd").value) || 0);
+    const gross = r2(R * 0.15), pd = r2(R * 0.0795);
+    let fed = fedTable(gross, status) - (2000 * deps) / 52;
+    fed = r0(Math.max(0, fed));
+    const ok = r0(0.0448 * gross - 9.16);
+    const newYtd = ytd + gross;
+    const ss = r2(r2(newYtd * 0.062) - r2(ytd * 0.062));
+    const med = r2(r2(newYtd * 0.0145) - r2(ytd * 0.0145));
+    const net = r2(gross - fed - ok - ss - med + pd);
+    big = net; bigLbl = "estimated net check (W-2)";
+    lines.push(["Gross pay (15%)", fmt(gross)], ["Per diem (7.95%, tax-free)", fmt(pd)],
+      ["Federal withholding", "-"+fmt(fed)], ["Oklahoma withholding*", "-"+fmt(ok)],
+      ["Social Security (6.2%)", "-"+fmt(ss)], ["Medicare (1.45%)", "-"+fmt(med)]);
+    lines.push(["Net check", fmt(net), true]);
+    const am = annualModel(R, "w2", status, deps, 0);
+    const annualCash = 0.15*R*52 + 0.0795*R*52;
+    annual = annualCash - am.totalFed;
+    foot = "*Oklahoma line fitted from single/0 stubs — approximate for married/HoH. " +
+           "Dependents modeled as $2,000/yr credit each against withholding. " +
+           "Head of household withholds at the Single rate (pre-2020 W-4 has no HoH box); " +
+           "its annual figures use HoH brackets and the $24,150 standard deduction.";
+  } else {
+    const ded = Math.max(0, parseFloat($("inDed").value) || 0);
+    const check = r2(0.25 * R);
+    const seTaxable = Math.max(0, check - ded);
+    const seTax = r2(0.153 * 0.9235 * seTaxable);
+    const am = annualModel(R, "t1099", status, deps, ded);
+    const weeklyReserve = r2((am.fica + Math.max(0, am.liab)) / 52);
+    const keep = r2(check - weeklyReserve);
+    big = keep; bigLbl = "check minus tax set-aside (1099)";
+    lines.push(["1099 check (25%)", fmt(check)], ["Est. SE tax to set aside", "-"+fmt(seTax)],
+      ["Est. federal income tax reserve", "-"+fmt(r2(weeklyReserve - seTax))]);
+    lines.push(["Keep (before state tax)", fmt(keep), true]);
+    if (am.refCTC + am.eic > 0)
+      lines.push(["Refundable credits at filing", "+"+fmt(r2((am.refCTC + am.eic)/52))+" /wk equiv."]);
+    annual = 0.25*R*52 - am.totalFed;
+    foot = "Set the reserve aside weekly — 1099 has no withholding. " +
+           "Refundable child credits/EIC arrive at filing, not in the check. State tax not modeled.";
+  }
+  $("outBig").textContent = fmt(big);
+  $("outBigLbl").textContent = bigLbl;
+  $("outLines").style.display = "";
+  $("annualCard").style.display = "";
+  $("outLines").innerHTML = lines.map(([k,v,tot]) =>
+    `<div class="row${tot?" total":""}"><span class="k">${k}</span><span class="v">${v}</span></div>`).join("");
+  $("outAnnual").textContent = fmt0(annual);
+  $("outFoot").textContent = foot;
+}
+renderLoads();
+calc();
+</script>
+<script>
+if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+</script>
+</body>
+</html>
