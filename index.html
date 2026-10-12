@@ -34,12 +34,11 @@
   .seg button { flex:1; padding:12px 6px; font-size:14px; background:transparent; color:var(--dim);
       border:0; cursor:pointer; }
   .seg button.on { background:var(--acc); color:#06121f; font-weight:700; }
-  .loadrow { display:grid; grid-template-columns:20px 1fr 16px 1fr auto 30px; gap:6px;
+  .loadrow { display:grid; grid-template-columns:16px 1fr 10px 1fr 10px 1fr 28px; gap:5px;
              align-items:center; margin-bottom:8px; }
-  .loadrow input { font-size:16px; padding:10px 8px; }
+  .loadrow input { font-size:16px; padding:10px 6px; min-width:0; }
   .loadrow .ln { color:var(--dim); font-size:12px; text-align:center; }
-  .loadrow .x { color:var(--dim); text-align:center; }
-  .loadrow .lt { font-size:13px; font-variant-numeric:tabular-nums; min-width:66px; text-align:right; }
+  .loadrow .x { color:var(--dim); text-align:center; font-size:13px; }
   .loadrow .rm { background:transparent; border:1px solid var(--line); color:var(--dim);
       border-radius:8px; font-size:16px; padding:5px 0; cursor:pointer; }
   .addbtn { width:100%; padding:11px; margin-top:2px; border-radius:10px;
@@ -67,7 +66,7 @@
     <button data-v="w2" class="on">W-2 · 15%</button>
     <button data-v="t1099">1099 · 25%</button>
   </div>
-  <label>Loads — tons × $/ton</label>
+  <label>Loads — fill any two per row</label>
   <div id="loads"></div>
   <button id="addLoad" type="button" class="addbtn">＋ Add load</button>
   <div class="row total" style="margin-top:8px"><span class="k">Total truck gross</span><span class="v" id="outR">$0.00</span></div>
@@ -101,7 +100,7 @@
   <div class="note" id="outFoot" style="margin-top:8px"></div>
   <details><summary>How this is calculated</summary>
     <div class="note" style="margin-top:6px">
-    W-2: truck revenue = Σ(tons × $/ton) across your loads; gross = 15% of truck revenue; per diem = 7.95% (exact on all 6 stubs);
+    W-2: truck revenue = Σ of your load totals; gross = 15% of truck revenue; per diem = 7.95% (exact on all 6 stubs);
     federal = IRS Pub. 15-T 2026 weekly tables (pre-2020 W-4) on gross, rounded to whole dollars,
     minus $2,000/yr per dependent; Oklahoma ≈ 4.48% of gross − $9.16, rounded to dollars
     (fitted — exact within 35¢); Social Security/Medicare = (rounded YTD tax at new YTD) −
@@ -174,15 +173,41 @@ function annualModel(Rweek, mode, status, deps, weeklyDed){
 let mode = "w2", status = "single";
 
 // ---- Load rows: tons × $/ton ----
-let loads = [{tons:"",rate:""},{tons:"",rate:""},{tons:"",rate:""}];
+let loads = [{tons:"",rate:"",total:"",answer:"total",et:{}},
+             {tons:"",rate:"",total:"",answer:"total",et:{}},
+             {tons:"",rate:"",total:"",answer:"total",et:{}}];
+function rowTotal(l){
+  const p = parseFloat(l.total);
+  if (isFinite(p)) return r2(p);
+  return r2((parseFloat(l.tons)||0) * (parseFloat(l.rate)||0));
+}
 function totalR(){
-  return r2(loads.reduce((s,l) => s + (parseFloat(l.tons)||0) * (parseFloat(l.rate)||0), 0));
+  return r2(loads.reduce((s,l) => s + rowTotal(l), 0));
+}
+// ---- Load rows: type any two of tons / $/ton / total, the third fills in ----
+function rowVals(L){
+  const n = s => { const x = parseFloat(s); return isFinite(x) ? x : null; };
+  return { tons: n(L.tons), rate: n(L.rate), total: n(L.total) };
+}
+function canCompute(dep, v){
+  if (dep === "total") return v.tons !== null && v.rate !== null;
+  if (dep === "rate") return v.total !== null && v.tons !== null && v.tons !== 0;
+  if (dep === "tons") return v.total !== null && v.rate !== null && v.rate !== 0;
+  return false;
+}
+function compute(dep, v){
+  if (dep === "total") return v.tons * v.rate;
+  if (dep === "rate") return v.total / v.tons;
+  return v.total / v.rate;
+}
+function setField(rowEl, L, f, val){
+  L[f] = val;
+  rowEl.querySelector('input[data-f="'+f+'"]').value = val;
 }
 function renderLoads(){
   const el = $("loads");
   el.innerHTML = "";
   loads.forEach((l, i) => {
-    const t = parseFloat(l.tons)||0, r = parseFloat(l.rate)||0;
     const row = document.createElement("div");
     row.className = "loadrow";
     row.innerHTML =
@@ -190,25 +215,61 @@ function renderLoads(){
       `<input type="number" inputmode="decimal" min="0" step="0.01" placeholder="tons" value="${l.tons}" data-i="${i}" data-f="tons" aria-label="Load ${i+1} tons">` +
       `<span class="x">×</span>` +
       `<input type="number" inputmode="decimal" min="0" step="0.01" placeholder="$/ton" value="${l.rate}" data-i="${i}" data-f="rate" aria-label="Load ${i+1} dollars per ton">` +
-      `<span class="lt">${fmt(t*r)}</span>` +
+      `<span class="x">=</span>` +
+      `<input type="number" inputmode="decimal" min="0" step="0.01" placeholder="total $" value="${l.total}" data-i="${i}" data-f="total" aria-label="Load ${i+1} total pay">` +
       `<button type="button" class="rm" data-i="${i}" aria-label="Remove load ${i+1}">×</button>`;
     el.appendChild(row);
   });
-  el.querySelectorAll("input").forEach(inp => inp.addEventListener("input", e => {
-    const i = +e.target.dataset.i;
-    loads[i][e.target.dataset.f] = e.target.value;
-    const t = parseFloat(loads[i].tons)||0, r = parseFloat(loads[i].rate)||0;
-    e.target.closest(".loadrow").querySelector(".lt").textContent = fmt(t*r);
-    calc();
-  }));
+  el.querySelectorAll("input").forEach(inp => {
+    inp.addEventListener("input", e => {
+      const i = +e.target.dataset.i, f = e.target.dataset.f;
+      const L = loads[i];
+      const rowEl = e.target.closest(".loadrow");
+      L[f] = e.target.value;
+      L.et = L.et || {}; L.et[f] = Date.now();
+      if (f !== L.answer) {
+        const v = rowVals(L);
+        const validCount = ["tons","rate","total"].filter(k => v[k] !== null).length;
+        if (validCount < 2) {
+          if (v[L.answer] !== null) setField(rowEl, L, L.answer, "");
+          L.answer = "total";
+        } else {
+          const third = ["tons","rate","total"].find(k => k !== f && k !== L.answer);
+          if (canCompute(L.answer, v)) {
+            setField(rowEl, L, L.answer, String(r2(compute(L.answer, v))));
+          } else if (canCompute(third, v)) {
+            L.answer = third;
+            setField(rowEl, L, third, String(r2(compute(third, v))));
+          } else if (v[L.answer] !== null) {
+            setField(rowEl, L, L.answer, ""); // inputs changed; old answer stale
+          }
+        }
+      }
+      calc();
+    });
+    inp.addEventListener("change", e => {
+      const i = +e.target.dataset.i, f = e.target.dataset.f;
+      const L = loads[i];
+      if (f !== L.answer) return;
+      const rowEl = e.target.closest(".loadrow");
+      const v = rowVals(L);
+      const cands = ["tons","rate","total"]
+        .filter(k => k !== f && canCompute(k, v))
+        .sort((a,b) => ((L.et||{})[b]||0) - ((L.et||{})[a]||0));
+      if (!cands.length) return;
+      L.answer = cands[0];
+      setField(rowEl, L, L.answer, String(r2(compute(L.answer, rowVals(L)))));
+      calc();
+    });
+  });
   el.querySelectorAll(".rm").forEach(b => b.addEventListener("click", e => {
     const i = +e.currentTarget.dataset.i;
-    if (loads.length <= 1) loads[0] = {tons:"",rate:""};
+    if (loads.length <= 1) loads[0] = {tons:"",rate:"",total:"",answer:"total",et:{}};
     else loads.splice(i, 1);
     renderLoads(); calc();
   }));
 }
-$("addLoad").addEventListener("click", () => { loads.push({tons:"",rate:""}); renderLoads(); calc(); });
+$("addLoad").addEventListener("click", () => { loads.push({tons:"",rate:"",total:"",answer:"total",et:{}}); renderLoads(); calc(); });
 function segWire(id, fn){
   $(id).querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
     $(id).querySelectorAll("button").forEach(x => x.classList.remove("on"));
